@@ -4,41 +4,68 @@ from datetime import datetime
 
 app = Flask(__name__)
 
+# CONFIG
 API_TOKEN = "esp8266secret123"
-resend.api_key = "YOUR_NEW_API_KEY"   # 🔥 change this
+resend.api_key = "re_bqQTtWqA_PqZnXs7zUwEwYrSqLtPbFDEy"   # 🔥 replace
 
+# ROOT (for keepAlive ping)
+@app.route("/", methods=["GET"])
+def home():
+    return "Pillar Monitor Running", 200
+
+
+# ALERT ENDPOINT (ESP CALLS THIS)
 @app.route("/alert", methods=["POST"])
 def alert():
-    token = request.headers.get("X-Token", "")
-    if token != API_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        # 🔐 TOKEN CHECK
+        token = request.headers.get("X-Token", "")
+        if token != API_TOKEN:
+            return jsonify({"error": "Unauthorized"}), 401
 
-    data = request.json
+        # 📦 GET DATA
+        data = request.get_json()
+        print("📥 DATA RECEIVED:", data)
 
-    alert_type = data.get("alert_type")
-    crack = data.get("crack_length")
-    stress = data.get("stress")
-    stability = data.get("stability")
+        # 🧠 SAFE EXTRACTION
+        alert_type = data.get("alert_type", "UNKNOWN")
+        crack = float(data.get("crack_length", 0))
+        stress = float(data.get("stress", 0))
+        stability = bool(data.get("stability", True))
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    resend.Emails.send({
-        "from": "onboarding@resend.dev",
-        "to": ["pillarmonitor@gmail.com"],
-        "subject": f"🚨 {alert_type}",
-        "html": f"""
-        <h2>🚨 STRUCTURE ALERT</h2>
-        <p><b>Time:</b> {now}</p>
-        <hr>
-        <p><b>Crack:</b> {crack}</p>
-        <p><b>Stress:</b> {stress}</p>
-        <p><b>Status:</b> {"STABLE" if stability else "UNSTABLE"}</p>
-        """
-    })
+        # 📧 SEND EMAIL
+        resend.Emails.send(
+            {
+                "from": "onboarding@resend.dev",
+                "to": ["pillarmonitor@gmail.com"],
+                "subject": f"🚨 {alert_type}",
+                "html": f"""
+                <h2>🚨 STRUCTURAL ALERT</h2>
+                <p><b>Time:</b> {now}</p>
+                <hr>
+                <p><b>Crack Length:</b> {crack:.4f} cm</p>
+                <p><b>Stress:</b> {stress:.4f}</p>
+                <p><b>Status:</b> {"STABLE" if stability else "UNSTABLE"}</p>
+                """
+            }
+        )
 
-    return jsonify({"status": "sent"}), 200
+        print("✅ EMAIL SENT")
+        return jsonify({"status": "sent"}), 200
+
+    except Exception as e:
+        print("🔥 ERROR:", str(e))
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route("/")
-def home():
-    return "SERVER RUNNING"
+# HEALTH CHECK
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+# RUN (Railway uses gunicorn, but this is fallback)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)

@@ -10,6 +10,7 @@ resend.api_key = "re_bqQTtWqA_PqZnXs7zUwEwYrSqLtPbFDEy"   # 🔥 replace
 def home():
     return "Pillar Monitor Running", 200
 # ALERT ENDPOINT (ESP CALLS THIS)
+# ALERT ENDPOINT (ESP CALLS THIS)
 @app.route("/alert", methods=["POST"])
 def alert():
     try:

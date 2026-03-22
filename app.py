@@ -1,113 +1,76 @@
 from flask import Flask, request, jsonify
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import os
 from datetime import datetime
-import traceback
+import os
+import resend
 
 app = Flask(__name__)
 
-# ── CONFIG ───────────────────────────────────────────────
-SENDER_EMAIL    = os.environ.get("SENDER_EMAIL",    "pillarmonitor@gmail.com")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "zpyuxgwycshbdxng")
-RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL", "pillarmonitor@gmail.com")
-API_TOKEN       = os.environ.get("API_TOKEN",       "esp8266secret123")
-# ────────────────────────────────────────────────────────
+# CONFIG
+API_TOKEN = "esp8266secret123"
+RECIPIENT_EMAIL = "pillarmonitor@gmail.com"
 
-def send_email(alert_type, crack_length, vibration, stability):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[EMAIL] Sending: {alert_type} at {now}")
-    print(f"[EMAIL] From={SENDER_EMAIL}  To={RECIPIENT_EMAIL}")
+# RESEND KEY
+resend.api_key = "re_bqQTtWqA_PqZnXs7zUwEwYrSqLtPbFDEy"
 
+
+# EMAIL FUNCTION (SIMPLE + WORKING)
+def send_email():
     try:
-        msg = MIMEMultipart("alternative")
-        msg["From"]    = f"Pillar Monitor <{SENDER_EMAIL}>"
-        msg["To"]      = RECIPIENT_EMAIL
-        msg["Subject"] = f"ALERT: {alert_type}!"
-
-        body = f"""
-====================================
-  STRUCTURAL MONITORING ALERT
-====================================
-
-ALERT TYPE   : {alert_type}
-TIMESTAMP    : {now}
-
-------------------------------------
-SENSOR READINGS
-------------------------------------
-Crack Length : {crack_length:.4f} cm
-Vibration    : {vibration:.4f}
-Stability    : {"STABLE" if stability else "UNSTABLE"}
-------------------------------------
-
-Please inspect the structure immediately.
-
-- ESP8266 Structure Monitor
-====================================
-"""
-        msg.attach(MIMEText(body, "plain"))
-
-        print("[EMAIL] Connecting smtp.gmail.com:465 ...")
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as smtp:
-            print("[EMAIL] Connected. Logging in...")
-            smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
-            print("[EMAIL] Login OK. Sending...")
-            smtp.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
-
-        print(f"[EMAIL] SUCCESS at {now}")
+        resend.Emails.send(
+            {
+                "from": "onboarding@resend.dev",
+                "to": ["pillarmonitor@gmail.com"],
+                "subject": "TEST MAIL",
+                "html": "<h2>🚀 EMAIL WORKING</h2>"
+            }
+        )
         return True
-
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"[EMAIL] AUTH FAILED: {e}")
-        print("[EMAIL] Fix: Gmail > Security > App Passwords > generate new one")
-        return False
-    except Exception as e:
-        print(f"[EMAIL] ERROR: {e}")
-        traceback.print_exc()
+    except:
         return False
 
 
+# TEST ROUTE
+@app.route("/test")
+def test():
+    if send_email():
+        return "✅ Email Sent"
+    else:
+        return "❌ Email Failed"
+
+
+# ALERT ROUTE (ESP USES THIS)
 @app.route("/alert", methods=["POST"])
 def alert():
-    print(f"\n[POST /alert] from {request.remote_addr}")
-
     token = request.headers.get("X-Token", "")
     if token != API_TOKEN:
-        print(f"[UNAUTHORIZED] token='{token}'")
         return jsonify({"error": "Unauthorized"}), 401
 
-    data = request.get_json(force=True, silent=True)
-    print(f"[DATA] {data}")
-    if not data:
-        return jsonify({"error": "No JSON body"}), 400
+    data = request.json
 
-    alert_type   = data.get("alert_type", "UNKNOWN")
-    crack_length = float(data.get("crack_length", 0))
-    vibration    = float(data.get("vibration", 0))
-    stability    = bool(data.get("stability", True))
+    resend.Emails.send(
+        {
+            "from": "onboarding@resend.dev",
+            "to": ["pillarmonitor@gmail.com"],
+            "subject": "🚨 ALERT",
+            "html": f"""
+            <h2>🚨 ALERT RECEIVED</h2>
+            <p>Crack: {data.get('crack_length')}</p>
+            <p>Vibration: {data.get('vibration')}</p>
+            <p>Stability: {data.get('stability')}</p>
+            """
+        }
+    )
 
-    success = send_email(alert_type, crack_length, vibration, stability)
-    return jsonify({"status": "email sent" if success else "email failed"}), (200 if success else 500)
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"}), 200
-
-
-@app.route("/test", methods=["GET"])
-def test_email():
-    """Open /test in browser to send a real test email"""
-    print("[TEST] Manual test triggered")
-    success = send_email("TEST ALERT", 0.1234, 0.5678, False)
-    if success:
-        return f"<h2 style='color:green'>✅ Test email sent to {RECIPIENT_EMAIL} — check inbox!</h2>", 200
-    else:
-        return "<h2 style='color:red'>❌ Email FAILED — check logs</h2>", 500
+    return jsonify({"status": "sent"}), 200
 
 
+# ROOT (fix 404)
+@app.route("/")
+def home():
+    return "Pillar Monitor Running"
+
+
+# RUN
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
